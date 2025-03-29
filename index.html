@@ -56,7 +56,7 @@
             הפלטפורמה החדשה שמחברת בין קולינריה לעולם העסקים. <br>
             מחפש/ת לקוחות חדשים ושיתופי פעולה עסקיים? הצטרף אלינו!
         </p>
-        <form action="#" method="post">
+        <form id="culiixForm">
             <input type="text" name="full_name" placeholder="שם מלא" required>
             <input type="text" name="business_name" placeholder="שם העסק וההתמחות" required>
             <input type="text" name="address" placeholder="כתובת" required>
@@ -65,5 +65,33 @@
             <button type="submit">שלח פרטים</button>
         </form>
     </div>
+
+    <script>
+        document.getElementById("culiixForm").addEventListener("submit", function(event) {
+            event.preventDefault();
+            
+            var formData = {
+                full_name: document.querySelector("[name='full_name']").value,
+                business_name: document.querySelector("[name='business_name']").value,
+                address: document.querySelector("[name='address']").value,
+                phone: document.querySelector("[name='phone']").value,
+                email: document.querySelector("[name='email']").value
+            };
+            
+            fetch(https://script.google.com/macros/s/AKfycbyR9lk3l_i3NJEaZaL-TfB7eQGXEtBUIq3qKPYI6c8-h3azd3181_YhpsvJO8O-SgnQbw/exec, {
+                method: "POST",
+                body: JSON.stringify(formData),
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            })
+            .then(response => response.text())
+            .then(data => {
+                alert("פרטיך נשלחו בהצלחה!");
+                document.getElementById("culiixForm").reset();
+            })
+            .catch(error => console.error("Error:", error));
+        });
+    </script>
 </body>
 </html>
