@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Screen Recorder</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card {
+            background: #16213e;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 600px;
+            width: 90%;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 32px;
+        }
+
+        .option {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 24px;
+            font-size: 14px;
+            color: #ccc;
+        }
+
+        .option input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #e94560;
+        }
+
+        button {
+            border: none;
+            border-radius: 8px;
+            padding: 14px 32px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        button:hover { opacity: 0.85; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .btn-start {
+            background: #2ecc71;
+            color: #fff;
+        }
+
+        .btn-stop {
+            background: #e94560;
+            color: #fff;
+        }
+
+        .btn-download {
+            background: #3498db;
+            color: #fff;
+        }
+
+        .btn-new {
+            background: #555;
+            color: #fff;
+            margin-left: 12px;
+        }
+
+        .recording-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .red-dot {
+            width: 14px;
+            height: 14px;
+            background: #e94560;
+            border-radius: 50%;
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .timer {
+            font-size: 28px;
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+        }
+
+        video {
+            width: 100%;
+            border-radius: 8px;
+            background: #000;
+            margin-bottom: 20px;
+        }
+
+        .status {
+            color: #e94560;
+            font-size: 14px;
+            margin-top: 16px;
+            min-height: 20px;
+        }
+
+        .hidden { display: none !important; }
+
+        .compat-banner {
+            background: #e94560;
+            color: #fff;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Screen Recorder</h1>
+        <p class="subtitle">Record your screen with system and microphone audio</p>
+
+        <div id="compatBanner" class="compat-banner hidden">
+            Your browser does not support screen recording. Please use Google Chrome.
+        </div>
+
+        <!-- Idle State -->
+        <div id="idleState">
+            <label class="option">
+                <input type="checkbox" id="micToggle" checked>
+                Include microphone audio
+            </label>
+            <button class="btn-start" id="startBtn" onclick="startRecording()">
+                Start Recording
+            </button>
+        </div>
+
+        <!-- Recording State -->
+        <div id="recordingState" class="hidden">
+            <div class="recording-indicator">
+                <div class="red-dot"></div>
+                <span class="timer" id="timer">00:00</span>
+            </div>
+            <button class="btn-stop" onclick="stopRecording()">
+                Stop Recording
+            </button>
+        </div>
+
+        <!-- Preview State -->
+        <div id="previewState" class="hidden">
+            <video id="preview" controls></video>
+            <div>
+                <button class="btn-download" id="downloadBtn">Download Recording</button>
+                <button class="btn-new" onclick="resetRecording()">New Recording</button>
+            </div>
+        </div>
+
+        <p class="status" id="status"></p>
+    </div>
+
+    <script>
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let screenStream = null;
+        let micStream = null;
+        let audioContext = null;
+        let timerInterval = null;
+        let startTime = null;
+        let blobUrl = null;
+
+        const idleState = document.getElementById('idleState');
+        const recordingState = document.getElementById('recordingState');
+        const previewState = document.getElementById('previewState');
+        const timerEl = document.getElementById('timer');
+        const statusEl = document.getElementById('status');
+        const preview = document.getElementById('preview');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const startBtn = document.getElementById('startBtn');
+        const micToggle = document.getElementById('micToggle');
+
+        // Browser compatibility check
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+            document.getElementById('compatBanner').classList.remove('hidden');
+            idleState.classList.add('hidden');
+        }
+
+        function showState(state) {
+            idleState.classList.toggle('hidden', state !== 'idle');
+            recordingState.classList.toggle('hidden', state !== 'recording');
+            previewState.classList.toggle('hidden', state !== 'preview');
+        }
+
+        function showStatus(msg) {
+            statusEl.textContent = msg;
+        }
+
+        function updateTimer() {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
+            const secs = String(elapsed % 60).padStart(2, '0');
+            timerEl.textContent = `${mins}:${secs}`;
+        }
+
+        function combineStreams(screen, mic) {
+            const videoTrack = screen.getVideoTracks()[0];
+            const screenAudio = screen.getAudioTracks();
+            const micAudio = mic ? mic.getAudioTracks() : [];
+
+            if (screenAudio.length === 0 && micAudio.length === 0) {
+                return new MediaStream([videoTrack]);
+            }
+            if (screenAudio.length === 0) {
+                return new MediaStream([videoTrack, ...micAudio]);
+            }
+            if (micAudio.length === 0) {
+                return new MediaStream([videoTrack, ...screenAudio]);
+            }
+
+            // Mix both audio sources
+            audioContext = new AudioContext();
+            const dest = audioContext.createMediaStreamDestination();
+
+            const screenSrc = audioContext.createMediaStreamSource(new MediaStream(screenAudio));
+            screenSrc.connect(dest);
+
+            const micSrc = audioContext.createMediaStreamSource(new MediaStream(micAudio));
+            micSrc.connect(dest);
+
+            return new MediaStream([videoTrack, dest.stream.getAudioTracks()[0]]);
+        }
+
+        async function startRecording() {
+            showStatus('');
+            startBtn.disabled = true;
+
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { cursor: 'always' },
+                    audio: true,
+                    systemAudio: 'include'
+                });
+
+                if (micToggle.checked) {
+                    try {
+                        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    } catch (e) {
+                        showStatus('Microphone denied — recording without mic.');
+                    }
+                }
+
+                const combined = combineStreams(screenStream, micStream);
+
+                const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9')
+                    ? 'video/webm; codecs=vp9'
+                    : 'video/webm';
+
+                mediaRecorder = new MediaRecorder(combined, {
+                    mimeType,
+                    videoBitsPerSecond: 2500000
+                });
+
+                recordedChunks = [];
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) recordedChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = handleRecordingStop;
+
+                // Handle user stopping share via browser UI
+                screenStream.getVideoTracks()[0].onended = () => {
+                    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                        stopRecording();
+                    }
+                };
+
+                mediaRecorder.start(1000);
+
+                startTime = Date.now();
+                timerEl.textContent = '00:00';
+                timerInterval = setInterval(updateTimer, 1000);
+
+                showState('recording');
+                showStatus('');
+            } catch (err) {
+                if (err.name === 'NotAllowedError') {
+                    showStatus('Screen sharing was cancelled.');
+                } else {
+                    showStatus('Error: ' + err.message);
+                }
+                cleanupStreams();
+                startBtn.disabled = false;
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            cleanupStreams();
+            clearInterval(timerInterval);
+        }
+
+        function cleanupStreams() {
+            if (screenStream) {
+                screenStream.getTracks().forEach(t => t.stop());
+                screenStream = null;
+            }
+            if (micStream) {
+                micStream.getTracks().forEach(t => t.stop());
+                micStream = null;
+            }
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+        }
+
+        function handleRecordingStop() {
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            blobUrl = URL.createObjectURL(blob);
+
+            preview.src = blobUrl;
+
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            const filename = `recording-${timestamp}.webm`;
+
+            // Auto-download
+            triggerDownload(blobUrl, filename);
+
+            // Manual download button
+            downloadBtn.onclick = () => triggerDownload(blobUrl, filename);
+
+            showState('preview');
+            startBtn.disabled = false;
+        }
+
+        function triggerDownload(url, filename) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+        }
+
+        function resetRecording() {
+            if (blobUrl) {
+                URL.revokeObjectURL(blobUrl);
+                blobUrl = null;
+            }
+            preview.src = '';
+            recordedChunks = [];
+            showState('idle');
+            showStatus('');
+        }
+    </script>
+</body>
+</html>
